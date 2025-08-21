@@ -322,7 +322,7 @@ CREATE TABLE Player (
     is_active BOOLEAN
 );
 
--- Create Player_Attributes table
+-- Create Player_Attributes table (with updated column types)
 CREATE TABLE Player_Attributes (
     ID INTEGER PRIMARY KEY,
     FIRST_NAME VARCHAR(100),
@@ -345,7 +345,7 @@ CREATE TABLE Player_Attributes (
     TEAM_ID INTEGER,
     TEAM_NAME VARCHAR(100),
     TEAM_ABBREVIATION VARCHAR(10),
-    TEAM_CODE VARCHAR(10),
+    TEAM_CODE VARCHAR(25),  -- Updated from VARCHAR(10) to VARCHAR(25)
     TEAM_CITY VARCHAR(50),
     PLAYERCODE VARCHAR(50),
     FROM_YEAR INTEGER,
@@ -353,7 +353,7 @@ CREATE TABLE Player_Attributes (
     DLEAGUE_FLAG VARCHAR(5),
     NBA_FLAG VARCHAR(5),
     GAMES_PLAYED_FLAG VARCHAR(5),
-    DRAFT_YEAR INTEGER,
+    DRAFT_YEAR VARCHAR(10),  -- Updated from INTEGER to VARCHAR(10)
     DRAFT_ROUND INTEGER,
     DRAFT_NUMBER INTEGER,
     PTS DECIMAL(5,1),
@@ -406,14 +406,15 @@ CREATE TABLE Team_History (
     YEARACTIVETILL INTEGER
 );
 
--- COPY commands for each table
-COPY Draft FROM 'data/Draft.csv' DELIMITER ',' CSV HEADER;
-COPY Draft_Combine FROM 'data/Draft_Combine.csv' DELIMITER ',' CSV HEADER;
-COPY Game FROM 'data/Game.csv' DELIMITER ',' CSV HEADER;
-COPY Game_Inactive_Players FROM 'data/Game_Inactive_Players.csv' DELIMITER ',' CSV HEADER;
-COPY Game_Officials FROM 'data/Game_Officials.csv' DELIMITER ',' CSV HEADER;
-COPY Player FROM 'data/Player.csv' DELIMITER ',' CSV HEADER;
-COPY Player_Attributes FROM 'data/Player_Attributes.csv' DELIMITER ',' CSV HEADER;
-COPY Player_Salary FROM 'data/Player_Salary.csv' DELIMITER ',' CSV HEADER;
-COPY Team_Attributes FROM 'data/Team_Attributes.csv' DELIMITER ',' CSV HEADER;
-COPY Team_History FROM 'data/Team_History.csv' DELIMITER ',' CSV HEADER;
+-- COPY commands with NULL AS ''
+COPY Draft FROM '/tmp/data/Draft.csv' DELIMITER ',' CSV HEADER NULL AS ''; 
+COPY Draft_Combine FROM '/tmp/data/Draft_Combine.csv' DELIMITER ',' CSV HEADER NULL AS '';
+COPY Game FROM '/tmp/data/Game.csv' DELIMITER ',' CSV HEADER NULL AS '';
+COPY Game_Inactive_Players FROM '/tmp/data/Game_Inactive_Players.csv' DELIMITER ',' CSV HEADER NULL AS '';
+COPY Game_Officials FROM '/tmp/data/Game_Officials.csv' DELIMITER ',' CSV HEADER NULL AS '';
+COPY Player FROM '/tmp/data/Player.csv' DELIMITER ',' CSV HEADER NULL AS '';
+COPY Player_Attributes FROM '/tmp/data/Player_Attributes.csv' DELIMITER ',' CSV HEADER NULL AS '';
+COPY Player_Salary FROM '/tmp/data/Player_Salary.csv' DELIMITER ',' CSV HEADER NULL AS '';
+COPY Team_Attributes FROM '/tmp/data/Team_Attributes.csv' DELIMITER ',' CSV HEADER NULL AS '';
+COPY Team_History FROM '/tmp/data/Team_History.csv' DELIMITER ',' CSV HEADER NULL AS '';
+
