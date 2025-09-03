@@ -1,0 +1,29 @@
+commit e30b388b00b8b5eb591781585fecc88512ad99de
+Author: IngeniosoHacker <mur21856@uvg.edu.gt>
+Date:   Tue Aug 26 08:21:00 2025 -0600
+
+    add data
+
+commit 793189da7c43b709eeb2bba5b828d0ec5237c89c
+Author: IngeniosoHacker <mur21856@uvg.edu.gt>
+Date:   Tue Aug 26 08:19:50 2025 -0600
+
+    add data
+
+commit a5afd6ab83d73bbdc58100874a40d85083e05e1c
+Author: IngeniosoHacker <mur21856@uvg.edu.gt>
+Date:   Thu Aug 21 11:14:23 2025 -0600
+
+    docs(README.md::Questions::Question 1): Add the question 1 and the querys to answer it
+
+commit 894703ab3d5dc1334adf677262d60273f1080052
+Author: IngeniosoHacker <mur21856@uvg.edu.gt>
+Date:   Thu Aug 21 11:01:23 2025 -0600
+
+    fix(setup.sql): Update the setup.sql file to fix some fields in player_attributes table
+
+commit 4a3172e86f879a2e34419cb2e6badbcdb25f81fb
+Author: IngeniosoHacker <mur21856@uvg.edu.gt>
+Date:   Wed Aug 20 18:30:34 2025 -0600
+
+    feat(setup): Create the setup.sql file to create the database
