@@ -1,3 +1,6 @@
+-- NBA Database Setup Script - Updated Version
+-- Includes all table creations with fixed Game table structure
+
 -- Create Draft table
 CREATE TABLE Draft (
     yearDraft INTEGER,
@@ -138,7 +141,7 @@ CREATE TABLE Draft_Combine (
     setOffDribBreakRightCollegePct DECIMAL(5,2)
 );
 
--- Create Game table
+-- Create Game table - UPDATED VERSION with fixes
 CREATE TABLE Game (
     GAME_ID BIGINT PRIMARY KEY,
     SEASON_ID INTEGER,
@@ -206,7 +209,7 @@ CREATE TABLE Game (
     LIVE_PERIOD INTEGER,
     LIVE_PC_TIME VARCHAR(10),
     NATL_TV_BROADCASTER_ABBREVIATION VARCHAR(10),
-    LIVE_PERIOD_TIME_BCAST VARCHAR(10),
+    LIVE_PERIOD_TIME_BCAST VARCHAR(50), -- UPDATED: Changed from VARCHAR(10) to VARCHAR(50)
     WH_STATUS VARCHAR(10),
     TEAM_CITY_HOME VARCHAR(50),
     PTS_PAINT_HOME INTEGER,
@@ -233,7 +236,7 @@ CREATE TABLE Game (
     LEAGUE_ID INTEGER,
     GAME_DATE_DAY INTEGER,
     ATTENDANCE INTEGER,
-    GAME_TIME TIME,
+    GAME_TIME INTERVAL, -- UPDATED: Changed from TIME to INTERVAL for game duration
     TEAM_CITY_NAME_HOME VARCHAR(100),
     TEAM_NICKNAME_HOME VARCHAR(100),
     TEAM_WINS_LOSSES_HOME VARCHAR(10),
@@ -406,10 +409,24 @@ CREATE TABLE Team_History (
     YEARACTIVETILL INTEGER
 );
 
+-- =============================================================================
+-- DATA LOADING INSTRUCTIONS
+-- =============================================================================
+
+-- Before loading the Game.csv file, you need to clean it:
+-- 1. Remove commas from quoted date fields:
+--    perl -pe 's/"([^"]*)"/($x=$1) =~ s#,# #g; "\"$x\""/ge' Game.csv > Game_clean.csv
+
+-- 2. Convert time format for game duration:
+--    perl -pe 's/(\d+):(\d+)/"$1 minutes $2 seconds"/g' Game_clean.csv > Game_duration_fixed.csv
+
+-- 3. Remove duplicates (keep last occurrence):
+--    tac Game_duration_fixed.csv | awk -F, '!seen[$1]++' | tac > Game_final.csv
+
 -- COPY commands with NULL AS ''
 COPY Draft FROM '/tmp/data/Draft.csv' DELIMITER ',' CSV HEADER NULL AS ''; 
 COPY Draft_Combine FROM '/tmp/data/Draft_Combine.csv' DELIMITER ',' CSV HEADER NULL AS '';
-COPY Game FROM '/tmp/data/Game.csv' DELIMITER ',' CSV HEADER NULL AS '';
+COPY Game FROM '/tmp/data/Game_final.csv' DELIMITER ',' CSV HEADER NULL AS ''; -- Use cleaned file
 COPY Game_Inactive_Players FROM '/tmp/data/Game_Inactive_Players.csv' DELIMITER ',' CSV HEADER NULL AS '';
 COPY Game_Officials FROM '/tmp/data/Game_Officials.csv' DELIMITER ',' CSV HEADER NULL AS '';
 COPY Player FROM '/tmp/data/Player.csv' DELIMITER ',' CSV HEADER NULL AS '';
