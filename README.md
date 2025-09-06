@@ -362,3 +362,441 @@ Respuesta:
 "FL"	466387189.0
 "WI"	279414350.0
 ```
+
+9) Win% local vs visita
+Querie:
+```
+WITH g0 AS (
+  SELECT
+    *,
+    COALESCE(
+      CASE WHEN season_id::text ~ '^\s*\d{5,}$' THEN RIGHT(season_id::text, 4)::int END,
+      NULLIF(substring(season::text FROM '(\d{4})'), '')::int
+    ) AS season_start
+  FROM game
+),
+seasons AS (
+  SELECT season_start, COUNT(*) AS games
+  FROM g0
+  WHERE season_start IS NOT NULL
+  GROUP BY 1
+),
+target AS (
+  -- usa 2021 si existe; si no, usa la más reciente disponible
+  SELECT 2021 AS season_start
+  WHERE EXISTS (SELECT 1 FROM seasons WHERE season_start = 2021)
+  UNION ALL
+  SELECT MAX(season_start) FROM seasons
+  WHERE NOT EXISTS (SELECT 1 FROM seasons WHERE season_start = 2021)
+  LIMIT 1
+),
+g AS (SELECT g0.* FROM g0 JOIN target t USING (season_start)),
+home AS (
+  SELECT team_name_home AS team,
+         (UPPER(COALESCE(wl_home::text,''))='W')::int AS win
+  FROM g
+),
+away AS (
+  SELECT team_name_away AS team,
+         (UPPER(COALESCE(wl_away::text,''))='W')::int AS win
+  FROM g
+),
+home_win AS (SELECT team, SUM(win)::numeric/COUNT(*) AS home_win_pct FROM home GROUP BY team),
+away_win AS (SELECT team, SUM(win)::numeric/COUNT(*) AS away_win_pct FROM away GROUP BY team)
+SELECT h.team,
+       ROUND(h.home_win_pct,4) AS home_win_pct,
+       ROUND(a.away_win_pct,4) AS away_win_pct,
+       ROUND(h.home_win_pct - a.away_win_pct,4) AS home_minus_away_gap
+FROM home_win h
+JOIN away_win a USING (team)
+ORDER BY away_win_pct DESC;
+```
+
+Respuesta (HAY 30 SE COLOCARON SOLO 5):
+```
+"Phoenix Suns"	0.6389	0.6667	-0.0278
+"LA Clippers"	0.6389	0.5946	0.0443
+"Portland Trail Blazers"	0.4595	0.5833	-0.1239
+"Los Angeles Lakers"	0.4865	0.5833	-0.0968
+"Indiana Pacers"	0.3333	0.5833	-0.2500
+```
+
+10) “Clutch”: victorias con margen ≤ 5 puntos
+Querie:
+```
+WITH g0 AS (
+  SELECT
+    *,
+    COALESCE(
+      CASE WHEN season_id::text ~ '^\s*\d{5,}$' THEN RIGHT(season_id::text, 4)::int END,
+      NULLIF(substring(season::text FROM '(\d{4})'), '')::int
+    ) AS season_start
+  FROM game
+),
+seasons AS (
+  SELECT season_start, COUNT(*) FROM g0 WHERE season_start IS NOT NULL GROUP BY 1
+),
+desired AS (
+  SELECT COALESCE(
+           (SELECT 2021 WHERE EXISTS (SELECT 1 FROM seasons WHERE season_start = 2021)),
+           (SELECT MAX(season_start) FROM seasons)
+         ) AS season_start
+),
+g AS (
+  SELECT g0.* FROM g0 JOIN desired d ON g0.season_start = d.season_start
+),
+m AS (
+  SELECT
+    team_name_home AS team,
+    (UPPER(COALESCE(wl_home::text,''))='W')::int AS win,
+    ABS(
+      NULLIF(regexp_replace(COALESCE(pts_home::text,''),'[^0-9.\-]','','g'),'')::numeric -
+      NULLIF(regexp_replace(COALESCE(pts_away::text,''),'[^0-9.\-]','','g'),'')::numeric
+    ) AS margin
+  FROM g
+  UNION ALL
+  SELECT
+    team_name_away,
+    (UPPER(COALESCE(wl_away::text,''))='W')::int,
+    ABS(
+      NULLIF(regexp_replace(COALESCE(pts_away::text,''),'[^0-9.\-]','','g'),'')::numeric -
+      NULLIF(regexp_replace(COALESCE(pts_home::text,''),'[^0-9.\-]','','g'),'')::numeric
+    )
+  FROM g
+)
+SELECT team,
+       SUM(CASE WHEN margin <= 5 THEN win ELSE 0 END) AS close_wins,
+       SUM(CASE WHEN margin <= 5 THEN 1   ELSE 0 END) AS close_games,
+       ROUND(
+         SUM(CASE WHEN margin <= 5 THEN win ELSE 0 END)::numeric /
+         NULLIF(SUM(CASE WHEN margin <= 5 THEN 1 ELSE 0 END),0), 4
+       ) AS close_win_pct
+FROM m
+GROUP BY team
+ORDER BY close_win_pct DESC NULLS LAST, close_wins DESC;
+```
+
+11) “Aplasta rivales”: % de victorias por ≥ 15 puntos
+Querie:
+```
+WITH g0 AS (
+  SELECT
+    *,
+    COALESCE(
+      CASE WHEN season_id::text ~ '^\s*\d{5,}$' THEN RIGHT(season_id::text, 4)::int END,
+      NULLIF(substring(season::text FROM '(\d{4})'), '')::int
+    ) AS season_start
+  FROM game
+),
+seasons AS (
+  SELECT season_start, COUNT(*) FROM g0 WHERE season_start IS NOT NULL GROUP BY 1
+),
+desired AS (
+  SELECT COALESCE(
+           (SELECT 2021 WHERE EXISTS (SELECT 1 FROM seasons WHERE season_start = 2021)),
+           (SELECT MAX(season_start) FROM seasons)
+         ) AS season_start
+),
+g AS (
+  SELECT g0.* FROM g0 JOIN desired d ON g0.season_start = d.season_start
+),
+m AS (
+  SELECT
+    team_name_home AS team,
+    (UPPER(COALESCE(wl_home::text,''))='W')::int AS win,
+    ( NULLIF(regexp_replace(COALESCE(pts_home::text,''),'[^0-9.\-]','','g'),'')::numeric -
+      NULLIF(regexp_replace(COALESCE(pts_away::text,''),'[^0-9.\-]','','g'),'')::numeric ) AS diff
+  FROM g
+  UNION ALL
+  SELECT
+    team_name_away,
+    (UPPER(COALESCE(wl_away::text,''))='W')::int,
+    ( NULLIF(regexp_replace(COALESCE(pts_away::text,''),'[^0-9.\-]','','g'),'')::numeric -
+      NULLIF(regexp_replace(COALESCE(pts_home::text,''),'[^0-9.\-]','','g'),'')::numeric )
+  FROM g
+)
+SELECT team,
+       SUM(CASE WHEN diff >= 15 THEN 1 ELSE 0 END) AS blowout_wins,
+       COUNT(*) AS total_games,
+       ROUND(SUM(CASE WHEN diff >= 15 THEN 1 ELSE 0 END)::numeric/COUNT(*),4) AS blowout_win_share
+FROM m
+GROUP BY team
+ORDER BY blowout_win_share DESC, blowout_wins DESC;
+```
+
+Respuesta (HAY 30 SE COLOCARON SOLO 5):
+```
+"Utah Jazz"	29	72	0.4028
+"LA Clippers"	22	73	0.3014
+"Philadelphia 76ers"	20	72	0.2778
+"Denver Nuggets"	18	72	0.2500
+"Phoenix Suns"	18	72	0.2500
+```
+
+12) Balance ofensivo/defensivo y ranking combinado
+Querie:
+```
+WITH g0 AS (
+  SELECT *,
+    COALESCE(
+      CASE WHEN season_id::text ~ '^\s*\d{5,}$' THEN RIGHT(season_id::text, 4)::int END,
+      NULLIF(substring(season::text FROM '(\d{4})'), '')::int
+    ) AS season_start
+  FROM game
+),
+seasons AS (
+  SELECT season_start, COUNT(*) FROM g0 WHERE season_start IS NOT NULL GROUP BY 1
+),
+desired AS (
+  SELECT COALESCE(
+           (SELECT 2021 WHERE EXISTS (SELECT 1 FROM seasons WHERE season_start = 2021)),
+           (SELECT MAX(season_start) FROM seasons)
+         ) AS season_start
+),
+g AS (SELECT g0.* FROM g0 JOIN desired d ON g0.season_start = d.season_start),
+u AS (
+  SELECT team_name_home AS team,
+         NULLIF(regexp_replace(COALESCE(pts_home::text,''),'[^0-9.\-]','','g'),'')::numeric AS pts_for,
+         NULLIF(regexp_replace(COALESCE(pts_away::text,''),'[^0-9.\-]','','g'),'')::numeric AS pts_against
+  FROM g
+  UNION ALL
+  SELECT team_name_away,
+         NULLIF(regexp_replace(COALESCE(pts_away::text,''),'[^0-9.\-]','','g'),'')::numeric,
+         NULLIF(regexp_replace(COALESCE(pts_home::text,''),'[^0-9.\-]','','g'),'')::numeric
+  FROM g
+),
+base AS (
+  SELECT team, AVG(pts_for) AS off, AVG(pts_against) AS def
+  FROM u GROUP BY team
+),
+ranks AS (
+  SELECT team,
+         RANK() OVER (ORDER BY off DESC) AS off_rank,
+         RANK() OVER (ORDER BY def ASC)  AS def_rank
+  FROM base
+)
+SELECT b.team,
+       ROUND(b.off,2) AS avg_pts_for,
+       ROUND(b.def,2) AS avg_pts_against,
+       r.off_rank,
+       r.def_rank,
+       (r.off_rank + r.def_rank) AS composite_rank
+FROM base b
+JOIN ranks r USING (team)
+ORDER BY composite_rank ASC, off_rank ASC;
+```
+
+Respuesta (HAY 30 SE COLOCARON SOLO 5):
+```
+"Philadelphia 76ers"	113.64	108.06	6	8	14
+"Phoenix Suns"	113.00	107.17	8	6	14
+"Utah Jazz"	112.56	103.64	12	3	15
+"Denver Nuggets"	112.47	107.15	13	5	18
+"LA Clippers"	110.88	105.25	16	4	20
+```
+
+13) Brecha mínima entre local y visita
+Querie:
+```
+WITH g0 AS (
+  SELECT *,
+    COALESCE(
+      CASE WHEN season_id::text ~ '^\s*\d{5,}$' THEN RIGHT(season_id::text, 4)::int END,
+      NULLIF(substring(season::text FROM '(\d{4})'), '')::int
+    ) AS season_start
+  FROM game
+),
+seasons AS (SELECT season_start, COUNT(*) FROM g0 WHERE season_start IS NOT NULL GROUP BY 1),
+desired AS (
+  SELECT COALESCE(
+           (SELECT 2021 WHERE EXISTS (SELECT 1 FROM seasons WHERE season_start = 2021)),
+           (SELECT MAX(season_start) FROM seasons)
+         ) AS season_start
+),
+g AS (SELECT g0.* FROM g0 JOIN desired d ON g0.season_start = d.season_start),
+home AS (SELECT team_name_home AS team, (UPPER(COALESCE(wl_home::text,''))='W')::int AS win FROM g),
+away AS (SELECT team_name_away AS team, (UPPER(COALESCE(wl_away::text,''))='W')::int AS win FROM g),
+hw AS (SELECT team, SUM(win)::numeric/COUNT(*) AS home_win FROM home GROUP BY team),
+aw AS (SELECT team, SUM(win)::numeric/COUNT(*) AS away_win FROM away GROUP BY team)
+SELECT hw.team,
+       ROUND(hw.home_win,4) AS home_win_pct,
+       ROUND(aw.away_win,4) AS away_win_pct,
+       ROUND(ABS(hw.home_win - aw.away_win),4) AS abs_gap
+FROM hw JOIN aw USING (team)
+ORDER BY abs_gap ASC, away_win_pct DESC;
+```
+
+Respuesta:
+```
+"Dallas Mavericks"	0.5556	0.5556	0.0000
+"Phoenix Suns"	0.6389	0.6667	0.0278
+"Chicago Bulls"	0.4167	0.4444	0.0278
+"Orlando Magic"	0.3056	0.2778	0.0278
+"Houston Rockets"	0.2500	0.2222	0.0278
+```
+
+14) “Forma” al final: win% en los últimos 30 días de la temporada
+Querie:
+```
+WITH g0 AS (
+  SELECT *,
+    COALESCE(
+      CASE WHEN season_id::text ~ '^\s*\d{5,}$' THEN RIGHT(season_id::text, 4)::int END,
+      NULLIF(substring(season::text FROM '(\d{4})'), '')::int
+    ) AS season_start
+  FROM game
+),
+seasons AS (SELECT season_start, COUNT(*) FROM g0 WHERE season_start IS NOT NULL GROUP BY 1),
+desired AS (
+  SELECT COALESCE(
+           (SELECT 2021 WHERE EXISTS (SELECT 1 FROM seasons WHERE season_start = 2021)),
+           (SELECT MAX(season_start) FROM seasons)
+         ) AS season_start
+),
+g AS (SELECT g0.* FROM g0 JOIN desired d ON g0.season_start = d.season_start),
+gd AS (
+  SELECT g.*,
+         COALESCE(
+           NULLIF(substring(game_date::text     FROM '^\s*(\d{4}-\d{2}-\d{2})'), ''),
+           NULLIF(substring(game_date_est::text FROM '^\s*(\d{4}-\d{2}-\d{2})'), '')
+         )::date AS dt
+  FROM g
+),
+cut AS (SELECT MAX(dt) - INTERVAL '30 days' AS cutoff FROM gd WHERE dt IS NOT NULL),
+last AS (
+  SELECT gd.*
+  FROM gd, cut
+  WHERE gd.dt IS NOT NULL AND gd.dt >= cut.cutoff
+),
+u AS (
+  SELECT team_name_home AS team, (UPPER(COALESCE(wl_home::text,''))='W')::int AS win FROM last
+  UNION ALL
+  SELECT team_name_away,        (UPPER(COALESCE(wl_away::text,''))='W')::int FROM last
+)
+SELECT team,
+       SUM(win) AS wins,
+       COUNT(*) AS games,
+       ROUND(SUM(win)::numeric/NULLIF(COUNT(*),0),4) AS win_pct_last_30d
+FROM u
+GROUP BY team
+ORDER BY win_pct_last_30d DESC NULLS LAST, wins DESC;
+```
+
+Respuesta:
+```
+"Dallas Mavericks"	0.5556	0.5556	0.0000
+"Phoenix Suns"	0.6389	0.6667	0.0278
+"Chicago Bulls"	0.4167	0.4444	0.0278
+"Orlando Magic"	0.3056	0.2778	0.0278
+"Houston Rockets"	0.2500	0.2222	0.0278
+```
+
+15) Score compuesto (win%, diferencial, eficiencia salarial, y (-) inactivos/juego)
+Querie:
+```
+WITH g0 AS (
+  SELECT *,
+    COALESCE(
+      CASE WHEN season_id::text ~ '^\s*\d{5,}$' THEN RIGHT(season_id::text, 4)::int END,
+      NULLIF(substring(season::text FROM '(\d{4})'), '')::int
+    ) AS season_start
+  FROM game
+),
+seasons AS (SELECT season_start, COUNT(*) FROM g0 WHERE season_start IS NOT NULL GROUP BY 1),
+desired AS (
+  SELECT COALESCE(
+           (SELECT 2021 WHERE EXISTS (SELECT 1 FROM seasons WHERE season_start = 2021)),
+           (SELECT MAX(season_start) FROM seasons)
+         ) AS season_start
+),
+g AS (SELECT g0.* FROM g0 JOIN desired d ON g0.season_start = d.season_start),
+-- slug de salarios: ej. 2021 -> '2021-22'
+slug AS (
+  SELECT season_start,
+         (season_start::text || '-' || RIGHT((season_start+1)::text, 2)) AS slugseason
+  FROM desired
+),
+home AS (
+  SELECT team_name_home AS team,
+         (UPPER(COALESCE(wl_home::text,''))='W')::int AS win,
+         NULLIF(regexp_replace(COALESCE(pts_home::text,''),'[^0-9.\-]','','g'),'')::numeric AS pf,
+         NULLIF(regexp_replace(COALESCE(pts_away::text,''),'[^0-9.\-]','','g'),'')::numeric AS pa
+  FROM g
+),
+away AS (
+  SELECT team_name_away AS team,
+         (UPPER(COALESCE(wl_away::text,''))='W')::int AS win,
+         NULLIF(regexp_replace(COALESCE(pts_away::text,''),'[^0-9.\-]','','g'),'')::numeric AS pf,
+         NULLIF(regexp_replace(COALESCE(pts_home::text,''),'[^0-9.\-]','','g'),'')::numeric AS pa
+  FROM g
+),
+u AS (SELECT * FROM home UNION ALL SELECT * FROM away),
+wins AS (
+  SELECT team,
+         SUM(win) AS wins,
+         COUNT(*) AS games,
+         SUM(win)::numeric/COUNT(*) AS win_pct,
+         AVG(pf - pa) AS avg_point_diff
+  FROM u GROUP BY team
+),
+pay AS (
+  SELECT ps.nameteam AS team,
+         SUM(NULLIF(regexp_replace(COALESCE(ps.value::text,''),'[^0-9.\-]','','g'),'')::numeric) AS payroll
+  FROM player_salary ps
+  JOIN slug s ON ps.slugseason = s.slugseason
+  GROUP BY ps.nameteam
+),
+eff AS (
+  SELECT w.team,
+         (w.wins / NULLIF(p.payroll,0)) * 1000000 AS wins_per_million
+  FROM wins w JOIN pay p ON p.team = w.team
+),
+inact AS (
+  SELECT g.season_start, gip.team_name
+  FROM game_inactive_players gip
+  JOIN g ON g.game_id = gip.game_id
+),
+inact_counts AS (
+  SELECT team_name AS team, COUNT(*) AS total_inactives
+  FROM inact GROUP BY team_name
+),
+games_ct AS (
+  SELECT team, COUNT(*) AS games
+  FROM (SELECT team_name_home AS team FROM g UNION ALL SELECT team_name_away FROM g) x
+  GROUP BY team
+),
+inact_rate AS (
+  SELECT gc.team, COALESCE(ic.total_inactives,0)::numeric / NULLIF(gc.games,0) AS inactives_per_game
+  FROM games_ct gc LEFT JOIN inact_counts ic ON ic.team = gc.team
+),
+all_metrics AS (
+  SELECT w.team, w.win_pct, w.avg_point_diff, e.wins_per_million, i.inactives_per_game
+  FROM wins w JOIN eff e ON e.team = w.team JOIN inact_rate i ON i.team = w.team
+),
+z AS (
+  SELECT
+    team,
+    (win_pct - AVG(win_pct) OVER()) / NULLIF(STDDEV_SAMP(win_pct) OVER(),0)                             AS z_win,
+    (avg_point_diff - AVG(avg_point_diff) OVER()) / NULLIF(STDDEV_SAMP(avg_point_diff) OVER(),0)         AS z_diff,
+    (wins_per_million - AVG(wins_per_million) OVER()) / NULLIF(STDDEV_SAMP(wins_per_million) OVER(),0)   AS z_eff,
+    (AVG(inactives_per_game) OVER() - inactives_per_game) / NULLIF(STDDEV_SAMP(inactives_per_game) OVER(),0) AS z_inact
+  FROM all_metrics
+)
+SELECT team,
+       ROUND(z_win,2)  AS z_win,
+       ROUND(z_diff,2) AS z_diff,
+       ROUND(z_eff,2)  AS z_eff,
+       ROUND(z_inact,2) AS z_inact,
+       ROUND((z_win + z_diff + z_eff + z_inact),2) AS composite_score
+FROM z
+ORDER BY composite_score DESC NULLS LAST;
+```
+
+Respuesta:
+```
+"Charlotte Hornets"	-0.14	-0.35	0.48
+"Washington Wizards"	-0.03	-0.33	-0.14
+"Cleveland Cavaliers"	-1.31	-1.69	-1.34
+"Sacramento Kings"	-0.89	-0.62	-0.30
+"New Orleans Pelicans"	-0.40	-0.05	-0.53
+```
