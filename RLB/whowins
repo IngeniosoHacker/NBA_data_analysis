@@ -1,0 +1,236 @@
+#!/usr/bin/env Rscript
+#
+# Set locale to avoid warnings
+Sys.setlocale("LC_ALL", "en_US.UTF-8")
+#
+# whowins
+# Usage: ./whowins <HOME_TEAM_ABBR> <AWAY_TEAM_ABBR>
+#
+# Requirements: Install R packages: DBI, RPostgres, dplyr, dotenv
+#   install.packages(c("DBI","RPostgres","dplyr","dotenv"))
+#
+# Configure PostgreSQL connection via .env file in the same directory:
+#   PGHOST=localhost
+#   PGPORT=5432
+#   PGUSER=your_username
+#   PGPASSWORD=your_password
+#   PGDATABASE=your_database
+#
+suppressMessages(library(DBI))
+suppressMessages(library(RPostgres))
+suppressMessages(library(dplyr))
+
+# Load environment variables from .env file
+if (!requireNamespace("dotenv", quietly = TRUE)) {
+  stop("Package 'dotenv' is required. Install with: install.packages('dotenv')")
+}
+
+# Find .env file in script directory
+script_dir <- dirname(normalizePath(commandArgs()[4]))
+env_file <- file.path(script_dir, ".env")
+
+if (file.exists(env_file)) {
+  dotenv::load_dot_env(env_file)
+  message("Environment file loaded from: ", env_file)
+} else {
+  warning("Environment file not found at: ", env_file)
+  message("Attempting to use system environment variables...")
+}
+
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) < 2) {
+  stop("Usage: whowins <HOME_TEAM_ABBR> <AWAY_TEAM_ABBR>\nExample: ./whowins LAL BOS")
+}
+home_team <- args[1]
+away_team <- args[2]
+
+# Validate required environment variables are present
+required_vars <- c("PGHOST", "PGUSER", "PGPASSWORD", "PGDATABASE")
+missing_vars <- required_vars[!nzchar(Sys.getenv(required_vars))]
+
+if (length(missing_vars) > 0) {
+  stop("Missing environment variables: ", paste(missing_vars, collapse = ", "), 
+       "\nMake sure they are defined in your .env file")
+}
+
+# Connect to PostgreSQL using environment variables
+con <- tryCatch({
+  dbConnect(
+    RPostgres::Postgres(),
+    host = Sys.getenv("PGHOST"),
+    port = as.integer(Sys.getenv("PGPORT", "5432")),
+    user = Sys.getenv("PGUSER"),
+    password = Sys.getenv("PGPASSWORD"),
+    dbname = Sys.getenv("PGDATABASE")
+  )
+}, error = function(e) {
+  stop("Error connecting to database: ", e$message, 
+       "\nVerify your credentials in the .env file")
+})
+
+message("Connected to PostgreSQL database: ", Sys.getenv("PGDATABASE"))
+
+# Helper function: aggregate stats (average) for players of a team in a game,
+# excluding inactive players when possible through name matching
+agg_team_stats_for_game <- function(con, team_abbr, game_id) {
+  # Try to exclude players listed as inactive in Game_Inactive_Players
+  q <- "
+    SELECT
+      AVG(CAST(pa.PTS AS DOUBLE PRECISION))  AS avg_pts,
+      AVG(CAST(pa.AST AS DOUBLE PRECISION))  AS avg_ast,
+      AVG(CAST(pa.REB AS DOUBLE PRECISION))  AS avg_reb,
+      AVG(CAST(pa.PIE AS DOUBLE PRECISION))  AS avg_pie
+    FROM Player_Attributes pa
+    WHERE pa.TEAM_ABBREVIATION = $1
+      AND NOT EXISTS (
+        SELECT 1 FROM Game_Inactive_Players gip
+        WHERE gip.GAME_ID = $2
+          AND (gip.TEAM_ABBREVIATION = $1 OR gip.TEAM_NAME = pa.TEAM_NAME)
+          -- attempt to identify inactive players by name (flexible matching)
+          AND (
+               (gip.FIRST_NAME IS NOT NULL AND pa.FIRST_NAME IS NOT NULL AND gip.FIRST_NAME = pa.FIRST_NAME)
+               OR (gip.LAST_NAME IS NOT NULL AND pa.LAST_NAME IS NOT NULL AND gip.LAST_NAME = pa.LAST_NAME)
+              )
+      );
+  "
+  res <- dbGetQuery(con, q, params = list(team_abbr, as.integer(game_id)))
+  # If returns NA (little or no data), replace with 0 to avoid NAs in dataset
+  if (nrow(res) == 0) return(data.frame(avg_pts=NA, avg_ast=NA, avg_reb=NA, avg_pie=NA))
+  res[is.na(res)] <- 0
+  return(res)
+}
+
+# Helper function: aggregate current stats without game_id (for future game prediction)
+agg_team_stats_now <- function(con, team_abbr) {
+  q <- "
+    SELECT
+      AVG(CAST(pa.PTS AS DOUBLE PRECISION))  AS avg_pts,
+      AVG(CAST(pa.AST AS DOUBLE PRECISION))  AS avg_ast,
+      AVG(CAST(pa.REB AS DOUBLE PRECISION))  AS avg_reb,
+      AVG(CAST(pa.PIE AS DOUBLE PRECISION))  AS avg_pie
+    FROM Player_Attributes pa
+    WHERE pa.TEAM_ABBREVIATION = $1;
+  "
+  res <- dbGetQuery(con, q, params = list(team_abbr))
+  if (nrow(res) == 0) return(data.frame(avg_pts=NA, avg_ast=NA, avg_reb=NA, avg_pie=NA))
+  res[is.na(res)] <- 0
+  return(res)
+}
+
+# 1) Fetch all minimal historical games needed (avoiding huge columns)
+games_q <- "
+  SELECT
+    GAME_ID,
+    TEAM_ABBREVIATION_HOME,
+    TEAM_ABBREVIATION_AWAY,
+    WL_HOME
+  FROM Game
+  WHERE TEAM_ABBREVIATION_HOME IS NOT NULL
+    AND TEAM_ABBREVIATION_AWAY IS NOT NULL
+  ;
+"
+games <- dbGetQuery(con, games_q)
+
+if (nrow(games) < 50) {
+  message("Warning: less than 50 games in 'Game' table. Model may be unstable.")
+}
+
+# 2) For each game, calculate aggregates by players for home and away
+# (this may take time if database is large; accepted to recalculate everything each time)
+build_features <- function(games_df) {
+  rows <- list()
+  total_games <- nrow(games_df)
+  message("Processing ", total_games, " games to train the model...")
+  
+  for (i in seq_len(total_games)) {
+    gid <- games_df$game_id[i]
+    home_abbr <- games_df$team_abbreviation_home[i]
+    away_abbr <- games_df$team_abbreviation_away[i]
+
+    home_stats <- agg_team_stats_for_game(con, home_abbr, gid)
+    away_stats <- agg_team_stats_for_game(con, away_abbr, gid)
+
+    outcome <- ifelse(toupper(games_df$wl_home[i]) %in% c("W","1"), 1, 0)
+    rows[[i]] <- data.frame(
+      game_id = gid,
+      home_abbr = home_abbr,
+      away_abbr = away_abbr,
+      home_avg_pts = home_stats$avg_pts,
+      home_avg_ast = home_stats$avg_ast,
+      home_avg_reb = home_stats$avg_reb,
+      home_avg_pie = home_stats$avg_pie,
+      away_avg_pts = away_stats$avg_pts,
+      away_avg_ast = away_stats$avg_ast,
+      away_avg_reb = away_stats$avg_reb,
+      away_avg_pie = away_stats$avg_pie,
+      outcome = outcome,
+      stringsAsFactors = FALSE
+    )
+    # progress every 200 games
+    if (i %% 200 == 0 || i == total_games) {
+      message("  Processed ", i, " / ", total_games, " games (", 
+              round((i/total_games)*100, 1), "%)")
+    }
+  }
+  df <- dplyr::bind_rows(rows)
+  # Replace NA with 0 (simple option; you can adjust later)
+  df[is.na(df)] <- 0
+  return(df)
+}
+
+features <- build_features(games)
+
+# 3) Train binary logistic regression
+# Select simple model; you can add more variables if desired
+message("Training logistic regression model...")
+formula <- outcome ~ home_avg_pts + home_avg_ast + home_avg_reb +
+  away_avg_pts + away_avg_ast + away_avg_reb
+
+modelo <- tryCatch({
+  glm(formula, data = features, family = binomial)
+}, error = function(e) {
+  dbDisconnect(con)
+  stop("Error fitting model: ", e$message)
+})
+
+# 4) Build feature row for the game we want to evaluate
+message("Getting current team statistics...")
+home_current <- agg_team_stats_now(con, home_team)
+away_current <- agg_team_stats_now(con, away_team)
+
+newdata <- data.frame(
+  home_avg_pts = home_current$avg_pts,
+  home_avg_ast = home_current$avg_ast,
+  home_avg_reb = home_current$avg_reb,
+  away_avg_pts = away_current$avg_pts,
+  away_avg_ast = away_current$avg_ast,
+  away_avg_reb = away_current$avg_reb
+)
+newdata[is.na(newdata)] <- 0
+
+# 5) Predict probability of HOME team victory
+prob_home_win <- predict(modelo, newdata = newdata, type = "response")
+
+# Readable result
+prob_home_win_pct <- round(prob_home_win * 100, 1)
+prob_away_win_pct <- round((1 - prob_home_win) * 100, 1)
+
+if (is.na(prob_home_win) || length(prob_home_win) == 0) {
+  cat("Error: could not calculate probability (check data and connection).\n")
+} else {
+  cat("\n", paste(rep("=", 60), collapse = ""), "\n")
+  if (prob_home_win > 0.5) {
+    cat(sprintf("PREDICTION: %s is the probable winner\n", home_team))
+    cat(sprintf("Probability: %s %.1f%% vs %s %.1f%%\n",
+                home_team, prob_home_win_pct, away_team, prob_away_win_pct))
+  } else {
+    cat(sprintf("PREDICTION: %s is the probable winner\n", away_team))
+    cat(sprintf("Probability: %s %.1f%% vs %s %.1f%%\n",
+                away_team, prob_away_win_pct, home_team, prob_home_win_pct))
+  }
+  cat(paste(rep("=", 60), collapse = ""), "\n")
+}
+
+# Disconnect
+dbDisconnect(con)
+message("Prediction completed")
