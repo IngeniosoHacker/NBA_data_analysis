@@ -684,11 +684,11 @@ ORDER BY win_pct_last_30d DESC NULLS LAST, wins DESC;
 
 Respuesta:
 ```
-"Dallas Mavericks"	0.5556	0.5556	0.0000
-"Phoenix Suns"	0.6389	0.6667	0.0278
-"Chicago Bulls"	0.4167	0.4444	0.0278
-"Orlando Magic"	0.3056	0.2778	0.0278
-"Houston Rockets"	0.2500	0.2222	0.0278
+"New York Knicks"	12	16	0.7500
+"Washington Wizards"	13	18	0.7222
+"Miami Heat"	12	17	0.7059
+"Atlanta Hawks"	11	16	0.6875
+"Philadelphia 76ers"	11	17	0.6471
 ```
 
 15) Score compuesto (win%, diferencial, eficiencia salarial, y (-) inactivos/juego)
