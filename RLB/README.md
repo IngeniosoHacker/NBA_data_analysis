@@ -257,3 +257,70 @@ Los coeficientes β representan el cambio en el log-odds por unidad de cambio en
 - **Coeficiente negativo**: Reduce probabilidad de victoria local
 - **Magnitud**: Indica fuerza de la asociación
 
+
+### Argumentos disponibles (Abbreviation names)
+
+**Query:**
+
+```
+SELECT DISTINCT 
+  TEAM_ABBREVIATION_HOME AS team_abbr,
+  TEAM_NAME_HOME AS team_name
+FROM Game 
+WHERE TEAM_ABBREVIATION_HOME IS NOT NULL 
+  AND TEAM_NAME_HOME IS NOT NULL
+UNION
+SELECT DISTINCT 
+  TEAM_ABBREVIATION_AWAY AS team_abbr,
+  TEAM_NAME_AWAY AS team_name
+FROM Game 
+WHERE TEAM_ABBREVIATION_AWAY IS NOT NULL 
+  AND TEAM_NAME_AWAY IS NOT NULL
+ORDER BY team_abbr;
+```
+
+**Respuesta**
+
+```
+MIH       | Milwaukee Hawks
+ MIL       | Milwaukee Bucks
+ MIN       | Minnesota Timberwolves
+ MNL       | Minneapolis Lakers
+ NJN       | New Jersey Nets
+ NOH       | New Orleans Hornets
+ NOJ       | New Orleans Jazz
+ NOK       | New Orleans/Oklahoma City Hornets
+ NOP       | New Orleans Pelicans
+ NYK       | New York Knicks
+ NYN       | New York Nets
+ OKC       | Oklahoma City Thunder
+ ORL       | Orlando Magic
+ PHI       | Philadelphia 76ers
+ PHL       | Philadelphia 76ers
+ PHW       | Philadelphia Warriors
+ PHX       | Phoenix Suns
+ PIT       | Pittsburgh Ironmen
+ POR       | Portland Trail Blazers
+ PRO       | Providence Steamrollers
+ ROC       | Rochester Royals
+ SAC       | Sacramento Kings
+ SAN       | San Antonio Spurs
+ SAS       | San Antonio Spurs
+ SDC       | San Diego Clippers
+ SDR       | San Diego Rockets
+ SEA       | Seattle SuperSonics
+ SFW       | San Francisco Warriors
+ SHE       | Sheboygan Redskins
+ STL       | St. Louis Hawks
+ SYR       | Syracuse Nationals
+ TCB       | Tri-Cities Blackhawks
+ TOR       | Toronto Raptors
+ UTA       | Utah Jazz
+ UTH       | Utah Jazz
+ VAN       | Vancouver Grizzlies
+ WAS       | Washington Bullets
+ WAS       | Washington Capitols
+ WAS       | Washington Wizards
+ WAT       | Waterloo Hawks
+(79 rows)
+```
