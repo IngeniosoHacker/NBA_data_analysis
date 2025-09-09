@@ -6,28 +6,28 @@
 
 ## Data cleaning
 
-WE found a problem in the `Player_Attributes.csv` file, cause the 4th column `DISPLAY_FIRST_LAST` had a comma inside the value, so it was breaking the whole csv structure. To fix this problem, we use `sed` command:
+Encontramos un problema en el archivo `Player_Attributes.csv`, la 4ta columna `DISPLAY_FIRST_LAST` tenía una coma en la columna, estaba rompiendo la estructura del csv. Para arreglarlo, usamos el comando `sed`:
 
 ```
 sed -E 's/"([^,]+), ([^"]+)"/"\1 \2"/g' Player_Attributes.csv > Player_Attributes_clean.csv
 ```
-Bassically: 
+Básicamente
 
 `[^,]+`: One or more characters that aren't commas
 `[^"]+`: One or more characters that aren't quotes
 
-This transforms:
+Esto transforma:
 
 "John, Doe" → "John Doe"
 
 ## Database Setup
 
-The database is on Docker, so we use the `docker cp` command to copy al the `csv` files into the container. Inside the container we use `psql` to run the `setup.sql` file.
-This file contains the querys to create the tables. But also contains the `COPY` function to copy the csv data into the database.
+La base de datos está en docker, así que usamos el comando `docker cp` para copiar los `csv` dentro del docker. Aquí usamos `psql` para correr el archivo `setup.sql`.
+Este archivo contiene queries para crear las tablas. También contiene la función `COPY` para copiar la data del csv a la base de datos.
 
-## Questions
+## Preguntas
 
-1.1. Who is the taller active Player?
+1. ¿Quién es el jugador activo más alto? ¿Y el más bajo?
 
 - Query:
 
@@ -40,7 +40,7 @@ ORDER BY pa.height DESC
 LIMIT 1;
 ```
 
-Answer:
+Respuesta
 
 ```
  full_name  | height
@@ -50,7 +50,7 @@ Answer:
 
 ```
 
-1.2.  Who is the shorter active Player?
+1.2.  ¿Y el más bajo?
 
 
 ```
@@ -62,7 +62,7 @@ ORDER BY pa.height ASC
 LIMIT 1;
 ```
 
-Answer:
+Respuesta:
 
 ```
   full_name   | height
@@ -101,7 +101,7 @@ FROM base
 GROUP BY season, team_abbr, team_name
 ORDER BY season, team_abbr;
 ```
-Answer: Demasiado largo para poner aquí
+Respuesta: Demasiado largo para poner aquí
 
 3) Top 5 árbitros en cuyos juegos el visitante pierde
 ```
